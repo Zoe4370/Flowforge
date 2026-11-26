@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const title = z.string().trim().min(1).max(48);
-const chartPoint = z.object({ label: z.string().trim().min(1).max(24), value: z.number().finite().min(0).max(1_000_000_000) }).strict();
+const chartPoint = z.object({ label: z.string().trim().min(1).max(24), value: z.number().finite().min(-1_000_000_000).max(1_000_000_000) }).strict();
 
 export const widgetSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('kpi'), title, value: z.string().trim().min(1).max(36), delta: z.string().max(24).optional(), trend: z.enum(['up', 'down', 'flat']).optional(), icon: z.enum(['activity', 'wallet', 'users', 'target', 'clock', 'sparkles', 'check', 'layers']).optional() }).strict(),

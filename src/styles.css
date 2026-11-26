@@ -1972,16 +1972,20 @@ tbody tr:hover td {
 
 .data-note {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 7px;
   margin-top: 14px;
   color: #909b90;
   font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .data-note-dot {
   width: 5px;
   height: 5px;
+  flex: 0 0 5px;
+  margin-top: 5px;
   border-radius: 50%;
   background: #97b554;
 }

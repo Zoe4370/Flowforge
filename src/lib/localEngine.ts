@@ -8,28 +8,65 @@ export type CsvSummary = {
   categoryColumn: string | null;
 };
 
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let current = '';
+function parseCsvRecords(csvText: string): string[][] | null {
+  const text = csvText.replace(/^\uFEFF/, '');
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
+  let quoteClosed = false;
+
+  const pushField = () => {
+    record.push(field.trim());
+    field = '';
+    quoteClosed = false;
+  };
+  const pushRecord = () => {
+    pushField();
+    if (record.some((cell) => cell.length > 0)) records.push(record);
+    record = [];
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
         i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+        quoteClosed = true;
       } else {
-        inQuotes = !inQuotes;
+        field += ch;
       }
-    } else if (ch === ',' && !inQuotes) {
-      out.push(current.trim());
-      current = '';
-    } else {
-      current += ch;
+      continue;
     }
+
+    if (quoteClosed) {
+      if (ch === ',') pushField();
+      else if (ch === '\r' || ch === '\n') {
+        pushRecord();
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+      } else if (ch !== ' ' && ch !== '\t') {
+        return null;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      if (field.trim()) return null;
+      field = '';
+      inQuotes = true;
+    } else if (ch === ',') pushField();
+    else if (ch === '\r' || ch === '\n') {
+      pushRecord();
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+    } else field += ch;
   }
-  out.push(current.trim());
-  return out;
+
+  if (inQuotes) return null;
+  if (field.length > 0 || record.length > 0 || quoteClosed) pushRecord();
+  return records;
 }
 
 function parseNumeric(raw: string): number | null {
@@ -60,25 +97,36 @@ function formatMetric(value: number, sampleRaw?: string): string {
   const suffix = hasPct ? '%' : '';
   const abs = Math.abs(value);
   const formatted = abs >= 1_000_000
-    ? `${(value / 1_000_000).toFixed(2)}M`
+    ? `${(abs / 1_000_000).toFixed(2)}M`
     : abs >= 10_000
-      ? `${(value / 1_000).toFixed(1)}k`
+      ? `${(abs / 1_000).toFixed(1)}k`
       : Number.isInteger(value)
-        ? value.toLocaleString('en-US')
-        : value.toLocaleString('en-US', { maximumFractionDigits: 1 });
-  return clampStr(`${prefix}${formatted}${suffix}`, 36);
+        ? abs.toLocaleString('en-US')
+        : abs.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  const sign = value < 0 ? '-' : '';
+  return clampStr(`${sign}${prefix}${formatted}${suffix}`, 36);
 }
 
 export function parseCsvSummary(csvText: string): CsvSummary | null {
-  const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length < 2) return null;
-  const rawHeaders = splitCsvLine(lines[0]);
+  const records = parseCsvRecords(csvText);
+  if (!records || records.length < 2) return null;
+  const rawHeaders = records[0];
   if (rawHeaders.length < 2) return null;
 
-  const headers = rawHeaders.map((h, i) => clampStr(h || `Column ${i + 1}`, 24));
+  const usedHeaders = new Set<string>();
+  const headers = rawHeaders.map((rawHeader, i) => {
+    const base = clampStr(rawHeader || `Column ${i + 1}`, 24);
+    let header = base;
+    let suffix = 2;
+    while (usedHeaders.has(header.toLowerCase())) {
+      const ending = ` (${suffix++})`;
+      header = `${clampStr(base, 24 - ending.length)}${ending}`;
+    }
+    usedHeaders.add(header.toLowerCase());
+    return header;
+  });
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length && rows.length < 250; i++) {
-    const cells = splitCsvLine(lines[i]);
+  for (const cells of records.slice(1, 251)) {
     if (cells.every((c) => !c)) continue;
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => {
@@ -110,12 +158,12 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
   const sampleRawPrimary = primaryCol ? rows[0]?.[primaryCol] : undefined;
 
   if (primaryCol) {
-    const vals = rows.map((r) => Math.max(0, parseNumeric(r[primaryCol] ?? '') ?? 0));
+    const vals = rows.map((r) => parseNumeric(r[primaryCol] ?? '')).filter((value): value is number => value !== null);
     const total = vals.reduce((a, b) => a + b, 0);
     const avg = vals.length ? total / vals.length : 0;
     const first = vals[0] ?? 0;
-    const last = vals[vals.length - 1] ?? 0;
-    const pctChange = first > 0 ? Math.round(((last - first) / first) * 100) : 0;
+    const last = vals.at(-1) ?? 0;
+    const pctChange = first !== 0 ? Math.round(((last - first) / Math.abs(first)) * 100) : 0;
 
     widgets.push({
       type: 'kpi',
@@ -127,15 +175,14 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
     });
 
     if (secondaryCol) {
-      const vals2 = rows.map((r) => Math.max(0, parseNumeric(r[secondaryCol] ?? '') ?? 0));
-      const total2 = vals2.reduce((a, b) => a + b, 0);
-      const avg2 = vals2.length ? total2 / vals2.length : 0;
+      const vals2 = rows.map((r) => parseNumeric(r[secondaryCol] ?? '')).filter((value): value is number => value !== null);
+      const avg2 = vals2.length ? vals2.reduce((a, b) => a + b, 0) / vals2.length : 0;
       const sampleRaw2 = rows[0]?.[secondaryCol];
       widgets.push({
         type: 'kpi',
         title: clampStr(`Avg ${secondaryCol}`, 48),
         value: formatMetric(avg2, sampleRaw2),
-        delta: `${rows.length} rows`,
+        delta: `${vals2.length}/${rows.length} rows`,
         trend: 'flat',
         icon: 'target',
       });
@@ -151,13 +198,13 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
     }
 
     if (tertiaryCol) {
-      const vals3 = rows.map((r) => Math.max(0, parseNumeric(r[tertiaryCol] ?? '') ?? 0));
+      const vals3 = rows.map((r) => parseNumeric(r[tertiaryCol] ?? '')).filter((value): value is number => value !== null);
       const total3 = vals3.reduce((a, b) => a + b, 0);
       widgets.push({
         type: 'kpi',
         title: clampStr(`Total ${tertiaryCol}`, 48),
         value: formatMetric(total3, rows[0]?.[tertiaryCol]),
-        delta: 'CSV verified',
+        delta: `${vals3.length}/${rows.length} rows`,
         trend: 'up',
         icon: 'layers',
       });
@@ -175,16 +222,18 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
     }
 
     if (rows.length >= 3) {
-      const chartRows = rows.slice(0, 12);
+      const chartData = rows.flatMap((r, idx) => {
+        const value = parseNumeric(r[primaryCol] ?? '');
+        return value === null ? [] : [{ label: clampLabel(r[labelColumn] || `#${idx + 1}`, 24), value }];
+      }).slice(0, 12);
+      if (chartData.length >= 3) {
       widgets.push({
         type: 'line_chart',
         title: clampStr(`${primaryCol} across ${labelColumn}`, 48),
         color: 'lime',
-        data: chartRows.map((r, idx) => ({
-          label: clampLabel(r[labelColumn] || `#${idx + 1}`, 24),
-          value: Math.max(0, parseNumeric(r[primaryCol] ?? '') ?? 0),
-        })),
+        data: chartData,
       });
+      }
     }
 
     const barSourceCol = secondaryCol ?? primaryCol;
@@ -192,7 +241,8 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
       const grouped = new Map<string, number>();
       for (const r of rows) {
         const key = clampLabel(r[categoryColumn] || 'Other', 24);
-        const val = Math.max(0, parseNumeric(r[barSourceCol] ?? '') ?? 0);
+        const val = parseNumeric(r[barSourceCol] ?? '');
+        if (val === null) continue;
         grouped.set(key, (grouped.get(key) ?? 0) + val);
       }
       const entries = [...grouped.entries()].slice(0, 8);
@@ -204,14 +254,17 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
         });
       }
     } else if (secondaryCol && rows.length >= 3) {
-      widgets.push({
-        type: 'bar_chart',
-        title: clampStr(`${secondaryCol} comparison`, 48),
-        data: rows.slice(0, 10).map((r, idx) => ({
-          label: clampLabel(r[labelColumn] || `#${idx + 1}`, 24),
-          value: Math.max(0, parseNumeric(r[secondaryCol] ?? '') ?? 0),
-        })),
-      });
+      const comparisonData = rows.slice(0, 10).flatMap((r, idx) => {
+          const value = parseNumeric(r[secondaryCol] ?? '');
+          return value === null ? [] : [{ label: clampLabel(r[labelColumn] || `#${idx + 1}`, 24), value }];
+        });
+      if (comparisonData.length >= 3) {
+        widgets.push({
+          type: 'bar_chart',
+          title: clampStr(`${secondaryCol} comparison`, 48),
+          data: comparisonData,
+        });
+      }
     }
   } else {
     widgets.push(
@@ -242,14 +295,18 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
     });
   }
 
+  const primaryNumericCount = primaryCol
+    ? rows.reduce((count, row) => count + (parseNumeric(row[primaryCol] ?? '') !== null ? 1 : 0), 0)
+    : 0;
+
   if (primaryCol && widgets.length < 8) {
-    const vals = rows.map((r) => Math.max(0, parseNumeric(r[primaryCol] ?? '') ?? 0));
+    const vals = rows.map((r) => parseNumeric(r[primaryCol] ?? '')).filter((value): value is number => value !== null);
     const total = vals.reduce((a, b) => a + b, 0);
-    const target = Math.max(1, Math.round(total * 1.2));
+    const target = Math.max(1, Math.round(Math.abs(total) * 1.2));
     widgets.push({
       type: 'progress',
       title: clampStr(`${primaryCol} Stretch Target`, 48),
-      current: Math.round(total),
+      current: Math.max(0, Math.round(total)),
       target,
       unit: sampleRawPrimary?.includes('$') ? 'USD' : '',
     });
@@ -257,7 +314,7 @@ function buildFromCsv(goal: string, summary: CsvSummary): DashboardSpec {
 
   if (widgets.length < 8) {
     const summaryText = primaryCol
-      ? `Analyzed ${rows.length} CSV rows across ${headers.length} columns (${headers.join(', ')}). Primary metric "${primaryCol}" shows real computed totals, averages, and period comparisons directly from your file.`
+      ? `Analyzed ${rows.length} CSV rows across ${headers.length} columns (${headers.join(', ')}). Primary metric "${primaryCol}" shows totals, averages, and period comparisons from ${primaryNumericCount}/${rows.length} numeric cells; blank and non-numeric cells are excluded.`
       : `Loaded ${rows.length} rows across ${headers.length} columns. Add a numeric column to unlock live trend charts and aggregations.`;
     widgets.push({
       type: 'note',
@@ -647,6 +704,15 @@ function buildDomainSpec(goal: string): DashboardSpec {
   });
 }
 
+function addWidgetWithCapacity(widgets: Widget[], widget: Widget, atStart = false): void {
+  if (widgets.length >= 8) {
+    const noteIndex = widgets.findIndex((item) => item.type === 'note');
+    widgets.splice(noteIndex >= 0 ? noteIndex : widgets.length - 1, 1);
+  }
+  if (atStart) widgets.unshift(widget);
+  else widgets.push(widget);
+}
+
 function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): DashboardSpec {
   const g = goal.toLowerCase();
   let widgets = [...current.widgets];
@@ -690,8 +756,8 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
           items: [...targetWidget.items.slice(0, 7), { label, done: false }],
         };
       }
-    } else if (widgets.length < 8) {
-      widgets.push({
+    } else {
+      addWidgetWithCapacity(widgets, {
         type: 'task_list',
         title: 'Action Checklist',
         items: [
@@ -703,8 +769,8 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
   }
 
   // Add chart / KPI / table / calendar / note / progress
-  if (/(add|include|show)\s+.*(weekly\s+chart|bar\s+chart|breakdown\s+chart)/.test(g) && widgets.length < 8) {
-    widgets.push({
+  if (/(add|include|show)\s+.*(weekly\s+chart|bar\s+chart|breakdown\s+chart)/.test(g)) {
+    addWidgetWithCapacity(widgets, {
       type: 'bar_chart',
       title: 'Weekly Breakdown',
       data: [
@@ -715,8 +781,8 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
         { label: 'Fri', value: 73 },
       ],
     });
-  } else if (/(add|include|show)\s+.*(line\s+chart|trend|chart)/.test(g) && widgets.length < 8) {
-    widgets.push({
+  } else if (/(add|include|show)\s+.*(line\s+chart|trend|chart)/.test(g)) {
+    addWidgetWithCapacity(widgets, {
       type: 'line_chart',
       title: 'Weekly Momentum Trend',
       color: colorMatch ?? 'cyan',
@@ -730,19 +796,19 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
     });
   }
 
-  if (/(add|include|show)\s+.*(kpi|metric|roi|revenue)/.test(g) && widgets.length < 8) {
-    widgets.unshift({
+  if (/(add|include|show)\s+.*(kpi|metric|roi|revenue)/.test(g)) {
+    addWidgetWithCapacity(widgets, {
       type: 'kpi',
       title: g.includes('roi') ? 'Estimated ROI' : 'Momentum Index',
       value: g.includes('roi') ? '3.4x' : '+22.8%',
       delta: 'Refined',
       trend: 'up',
       icon: 'sparkles',
-    });
+    }, true);
   }
 
-  if (/(add|include|show)\s+.*(action|task|checklist|todo)/.test(g) && !widgets.some((w) => w.type === 'task_list') && widgets.length < 8) {
-    widgets.push({
+  if (/(add|include|show)\s+.*(action|task|checklist|todo)/.test(g) && !widgets.some((w) => w.type === 'task_list')) {
+    addWidgetWithCapacity(widgets, {
       type: 'task_list',
       title: 'Action Plan',
       items: [
@@ -753,8 +819,8 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
     });
   }
 
-  if (/(add|include|show)\s+.*(calendar|schedule|timeline)/.test(g) && !widgets.some((w) => w.type === 'calendar') && widgets.length < 8) {
-    widgets.push({
+  if (/(add|include|show)\s+.*(calendar|schedule|timeline)/.test(g) && !widgets.some((w) => w.type === 'calendar')) {
+    addWidgetWithCapacity(widgets, {
       type: 'calendar',
       title: 'Milestone Timeline',
       events: [
@@ -764,8 +830,8 @@ function refineSpec(goal: string, current: DashboardSpec, sourceData?: string): 
     });
   }
 
-  if (/(add|include|show)\s+.*(note|summary|insight)/.test(g) && !widgets.some((w) => w.type === 'note') && widgets.length < 8) {
-    widgets.push({
+  if (/(add|include|show)\s+.*(note|summary|insight)/.test(g) && !widgets.some((w) => w.type === 'note')) {
+    addWidgetWithCapacity(widgets, {
       type: 'note',
       title: 'Executive Insight',
       body: clampStr(`Refined around "${goal}". Focus on the top upward trend and close out open checklist items first.`, 500),

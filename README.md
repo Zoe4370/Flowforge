@@ -27,12 +27,12 @@ The naive way to bridge that gap is letting an LLM generate raw HTML, JSX, or Ja
 
 1. **Models never write UI code.** Cloud models (Hugging Face Inference Router, Google Gemini, Groq, OpenAI) or the built-in CSV + NLP synthesis engine only output a JSON data specification matching a strict Zod schema (`src/lib/schema.ts`) covering eight allow-listed widget types.
 2. **Dual-end validation.** Every response is validated server-side before leaving `/api/generate` and re-validated client-side before React mounts a single component. Unknown widget types or extra properties are rejected.
-3. **Zero dead-end execution.** If no cloud API key is configured on Vercel, FlowForge automatically uses its deterministic CSV parser and domain-aware synthesis engine (`src/lib/localEngine.ts`) to compute real totals, averages, peaks, category groupings, and period changes from uploaded CSVs and synthesize or refine workspaces live.
+3. **Zero dead-end execution.** If no cloud API key is configured on Vercel, FlowForge automatically uses its deterministic CSV parser and domain-aware synthesis engine (`src/lib/localEngine.ts`) to calculate summaries from parseable uploaded CSVs and synthesize or refine workspaces live. Those calculations reflect the parsed cells; they do not independently verify source accuracy, units, or meaning.
 
 ## What it does
 
 - **Prompt-to-Workspace Generation:** Turn any goal into 3–8 interactive widgets (`kpi`, `line_chart`, `bar_chart`, `table`, `task_list`, `progress`, `note`, `calendar`).
-- **Real CSV Analytics:** Attach or drag-and-drop a CSV (up to 12 KB), or load the built-in SaaS sample CSV, to compute verified metrics, trend lines, category bars, and sortable tables.
+- **CSV-based summaries:** Attach or drag-and-drop a CSV (up to 12 KB), or load the built-in sample CSV, to calculate selected numeric summaries, trend lines, category bars, and sortable tables. Blank and non-numeric cells are excluded from numeric aggregations and charts; coverage is shown where available. The built-in data is sample content; calculations on uploaded files are not external validation.
 - **Multi-Provider AI Support:** Works with **Hugging Face Inference Router** (`Qwen/Qwen2.5-72B-Instruct`, `meta-llama/Llama-3.3-70B-Instruct`, `mistralai/Mistral-Small-24B-Instruct-2501`), **Google Gemini** (`gemini-2.5-flash`), **Groq**, **OpenAI**, session-only user tokens in the AI Engine modal, and automatic local fallback.
 - **Live Interactive Controls:** Switch chart modes (Area / Line / Bar), sort and filter table rows, add tasks inline, adjust progress bars with `+/-`, edit notes, check off calendar milestones, switch between session workspaces, toggle 3D tilt/compact density/focus mode, refine in place, and export specs to JSON or Markdown.
 
@@ -53,11 +53,11 @@ The naive way to bridge that gap is letting an LLM generate raw HTML, JSX, or Ja
 
 | Criterion | What the code does |
 | :--- | :--- |
-| **Code quality** | TypeScript with `strict: true`, `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch`. One shared Zod schema (`src/lib/schema.ts`) guards both client and server. Framework-free HTTP handlers (`server/http.ts`) are shared by Vercel functions (`api/generate.ts`, `api/health.ts`) and Vite dev middleware (`vite.config.ts`). Automated test suite (`tests/schema.test.ts`, `tests/generate.test.ts`) + GitHub Actions CI (`.github/workflows/ci.yml`) running `typecheck`, `test`, and `build`. |
+| **Code quality** | TypeScript with `strict: true`, `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch`. Workspace cards, composition preview, and Markdown serialization live in focused modules rather than the main UI component. One shared Zod schema (`src/lib/schema.ts`) guards both client and server. Framework-free HTTP handlers (`server/http.ts`) are shared by Vercel functions (`api/generate.ts`, `api/health.ts`) and Vite dev middleware (`vite.config.ts`). Automated tests cover schemas, API handlers, CSV parsing, workspace generation/refinement, exports, and provenance; GitHub Actions runs `typecheck`, `test`, and `build`. |
 | **Security** | Strict Zod schemas (`.strict()`) reject unknown widget types and extra fields so markup/scripts cannot ride along. React renders all values as text with zero `dangerouslySetInnerHTML`. CSV content is marked as untrusted data. Server API keys never enter client bundles (`VITE_` is never used), URLs, logs, or responses. Request bodies are capped at 64 KB, CSVs at 12 KB, model names are regex-validated, upstream calls time out after 40s, rate limiting caps abuse at 30 req/min per client, and `vercel.json` enforces CSP (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Permissions-Policy`. |
 | **Efficiency** | Zero database or runtime bloat. Charts (`recharts`) load asynchronously via `React.lazy` in a separate chunk; vendor code (`react`, `framer-motion`) is manually split for caching. The 3D `<canvas>` stage (`AmbientStage.tsx`) caps DPR at 2 and automatically pauses on `document.hidden` and `prefers-reduced-motion`. Cloud retries are capped at 1, and local CSV/domain fallback runs in single-digit milliseconds. |
 | **Accessibility** | Skip link (`#content`), semantic `<main>` / `<aside>` / `<header>` landmarks, visible `2px` focus outlines, labelled inputs and dialogs (`role="dialog"`, `aria-modal="true"`, Escape handling, focus restoration), `role="checkbox"` on tasks, `role="progressbar"` with value attributes, `aria-sort` on sortable table headers, `aria-live="polite"` on the widget grid, `role="alert"` on errors, accessible text summaries on charts, and `prefers-reduced-motion` support across CSS, Canvas, and Framer Motion (`<MotionConfig reducedMotion="user">`). |
-| **Problem statement** | Addresses both static-tool rigidity and text-trapped AI output via a schema-bound generative UI. Clearly distinguishes verified CSV calculations from illustrative sample figures, discloses session-only data handling, and documents known architectural limits below. |
+| **Problem statement** | Addresses both static-tool rigidity and text-trapped AI output via a schema-bound generative UI. Distinguishes calculations based on attached CSV cells from AI-generated or illustrative values, discloses session-only handling, and documents known architectural limits below. |
 
 ## Run locally
 
@@ -83,9 +83,16 @@ pnpm build
 2. Optionally add `HF_TOKEN` (Hugging Face) and/or `GEMINI_API_KEY` (Google AI Studio) in **Project Settings → Environment Variables**. Never prefix keys with `VITE_`.
 3. Even without environment variables configured, the site works immediately using the built-in CSV & NLP engine, and visitors can optionally supply a session-only token in the **AI Engine** modal.
 
+## Data provenance and generated values
+
+- **Local CSV engine:** Totals, averages, peaks, simple comparisons, and category summaries are calculated from parsed numeric CSV cells; blank and non-numeric cells are excluded, with coverage displayed where available. The parser uses up to 250 data rows for analysis. FlowForge does not establish whether the file is accurate, whether values use the expected units or currency, or whether a column has the intended meaning. Check calculations against the source before relying on them.
+- **Cloud AI provider:** When a cloud provider is selected or configured and a CSV is attached, the prompt and CSV are sent to the FlowForge API and the selected provider as generation context. AI-generated output can summarize, transform, or estimate values; it is not guaranteed to be an exact calculation.
+- **No attached CSV:** Local domain templates contain illustrative figures, and AI-generated figures may also be examples. They are not measurements from the user's records. The built-in sample CSV is sample content, not live business data.
+- The workspace status message and Markdown export disclose the active source/engine. JSON exports intentionally remain a schema-valid `DashboardSpec` and do not embed provenance metadata; keep the source CSV alongside the JSON when that context matters.
+
 ## Data handling
 
-Prompts and CSV contents are processed to build or refine the active dashboard and are never stored in a FlowForge database. Workspace history and interactive widget edits live only in browser session memory and reset on reload.
+Prompts and CSV contents are sent to the FlowForge API to build or refine a dashboard. If a cloud model is used, the CSV is forwarded to that provider; its own data-handling terms apply. FlowForge does not save these inputs or workspace history to an application database. Workspace history and interactive widget edits live in browser session memory and reset on reload. Avoid uploading confidential or sensitive data unless you have permission and have reviewed the selected provider's terms.
 
 ## Known limits
 
