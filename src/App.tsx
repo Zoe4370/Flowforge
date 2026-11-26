@@ -75,11 +75,20 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal: cleanPrompt, ...(current ? { current } : {}), ...(data ? { sourceData: data } : {}) }),
       });
-      const result: unknown = await response.json();
+      const contentType = response.headers.get('content-type') ?? '';
+      const responseText = await response.text();
+      let result: unknown = null;
+      if (contentType.toLowerCase().includes('application/json')) {
+        try { result = JSON.parse(responseText); }
+        catch { throw new Error(`The workspace service returned invalid JSON (HTTP ${response.status}). Please retry; if it continues, check the Vercel function configuration.`); }
+      }
       if (!response.ok) {
-        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string' ? result.error : 'Generation did not complete. Please try again.';
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : `The workspace service returned HTTP ${response.status} instead of a JSON error. Check Vercel's function logs and GEMINI_API_KEY configuration.`;
         throw new Error(message);
       }
+      if (result === null) throw new Error(`The workspace service did not return JSON (HTTP ${response.status}). Check that /api/generate is deployed as a Vercel Function.`);
       const parsed = dashboardSpecSchema.safeParse(result);
       if (!parsed.success) throw new Error('The generated layout could not be validated. Try a simpler prompt.');
       setDashboard(parsed.data);

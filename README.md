@@ -1,56 +1,100 @@
+```text
+ ______ _      ______          ________ ____  _____   _____ ______
+|  ____| |    / __ \ \        / /  ____/ __ \|  __ \ / ____|  ____|
+| |__  | |   | |  | \ \  /\  / /| |__ | |  | | |__) | |  __| |__
+|  __| | |   | |  | |\ \/  \/ / |  __|| |  | |  _  /| | |_ |  __|
+| |    | |___| |__| | \  /\  /  | |   | |__| | | \ \| |__| | |____
+|_|    |______\____/   \/  \/   |_|    \____/|_|  \_\\_____|______|
+
+  type a goal  ->  validated JSON spec  ->  a dashboard that builds itself
+```
+
 # FlowForge
 
-FlowForge turns a plain-language goal into a responsive, editable dashboard assembled from a validated widget catalog. Generate or refine a workspace, ground it in an uploaded CSV, interact with task lists, and export the dashboard specification as JSON.
+FlowForge is a prompt-to-dashboard web app. You describe what you are working on in plain English, optionally attach a small CSV, and the AI returns a layout that the app renders as an interactive workspace of charts, tables, task lists and metrics. Follow-up prompts reshape the same dashboard in place.
+
+Built for AI Vibeathon 2026 (Hack2Skill PromptWars).
+
+## The problem
+
+Most workspace software is fixed. You buy a tool, learn its layout, and then spend the first hour bending it around the thing you actually need to track: a freelance studio this month, a study plan next month, a small side business after that. When the job changes, you rebuild the dashboard by hand or switch tools.
+
+AI assistants have the opposite problem. They can analyse and advise, but their output is a block of text. The answer lives in a chat box while the screen stays exactly as it was.
+
+## Why this approach
+
+The obvious way to close that gap is to let the model write interface code. That is also the unsafe way: generated markup can break the page, inject scripts, or simply fail to render. FlowForge takes a narrower route. The model never writes UI. It returns data that has to match a strict schema describing eight allowed widget types, and the app draws those widgets with its own components. If the model returns something outside the schema, the response is rejected before anything reaches the screen.
+
+That choice gives three properties at once. The output is predictable, because every widget is a known component. It is safe, because there is no model-authored HTML or script to execute. And it is cheap to extend, because adding a widget means adding one schema entry and one component.
+
+## What it does
+
+You write a goal such as "a dashboard for my freelance design studio" and get a workspace of between three and eight widgets: KPI cards, line and bar charts, tables, task lists, progress bars, notes and calendar lists. You can refine it ("add a weekly hours chart, drop the calendar"), regenerate it, tick tasks off, or copy the underlying JSON spec. If you attach a CSV (up to 12 KB), the model is told to use its real columns and values and to avoid inventing totals. Without a CSV, every figure is labelled as illustrative sample data.
+
+## How it works
+
+```text
+ browser                               Vercel function                       Gemini API
+ -------                               ---------------                       ----------
+ goal + optional CSV  --POST-->  validate request (Zod, size caps)
+                                 rate limit per client
+                                 build prompt, mark CSV as untrusted  --->  generateContent
+                                                                      <---  JSON text
+                                 parse + validate against schema
+                                 (one retry if invalid)
+ render known widgets  <-------  200 spec  |  4xx/5xx with a plain message
+```
+
+The same Zod schema in `src/lib/schema.ts` guards both ends. The server validates what the model returns, and the browser validates it again before rendering. The API key exists only in the server environment.
+
+## How it maps to the evaluation criteria
+
+| Criterion | What the code does |
+| :-- | :-- |
+| Code quality | TypeScript in strict mode with unused-code checks, one schema shared by client and server, a framework-free request handler used by both Vercel and the dev server, 16 automated tests, and CI that runs typecheck, tests and build. |
+| Security | Strict schemas reject unknown fields and widget types. React renders everything as text, so there is no model-authored markup. CSV content is passed as untrusted data. The Gemini key stays server-side and never appears in URLs or responses. Request bodies are capped at 64 KB, upstream calls time out after 45 seconds, errors are generic, and the response headers include a Content Security Policy. A per-client rate limit applies, though on serverless it is per instance and best effort. |
+| Efficiency | No database and no external services beyond Gemini. Charts load in a separate lazy chunk, vendor code is split for caching, fonts load without blocking render, and a failed generation retries at most once. |
+| Accessibility | Skip link and a main landmark, visible keyboard focus, labelled form fields, task rows exposed as checkboxes, progress bars exposed as progressbars, text summaries on charts, `role="alert"` on errors, and reduced-motion support in both CSS and Framer Motion. Text smaller than 11px was raised to 11px, and low-contrast greys were lightened. This has not been through a formal WCAG audit. |
+| Problem statement | The sections above state the problem, the reason for a schema-bound design, and the limits. The app itself tells users when values are sample data and when a CSV has been sent to the AI service. |
 
 ## Run locally
 
-Requirements: Node.js 22.12+ and pnpm 11.25.0.
+You need Node.js 20 or newer and pnpm.
 
 ```bash
 pnpm install
-pnpm dev
+cp .env.example .env     # then put your Gemini API key in GEMINI_API_KEY
+pnpm dev                 # http://localhost:5173
 ```
 
-Open `http://localhost:3000`. In the managed Webdev Preview, the platform supplies the preview AI provider. For a standalone deployment, set `GEMINI_API_KEY` in the server environment. Never expose provider keys through frontend variables or commit secrets. Without AI credentials, the app displays a clear configuration error rather than pretending a request succeeded.
-
-## Use your data
-
-Upload a CSV (up to 12 KB) to generate a dashboard grounded in its contents. CSV text is sent to the configured AI provider for the request and is not stored in an app database. Inspect generated metrics before relying on them; the schema guarantees widget structure, not the accuracy of an AI interpretation. Without uploaded data, generated values are illustrative.
-
-## Architecture
-
-The React and TypeScript client uses Vite. Express serves the client and `/api/generate`. The server supports the managed OpenAI-compatible Manus preview provider and Google's Gemini `generateContent` REST API for standalone hosting. Gemini responses request JSON output; both provider paths are parsed and validated against the shared Zod dashboard schema before rendering. The model cannot generate executable UI code. No database is configured: dashboard state and task toggles remain in the current browser session.
-
-## Deploy to Google Cloud Run
-
-1. Create or select a Google Cloud project, enable Cloud Run and the Cloud Build APIs, and install/authenticate the Google Cloud CLI. Configure billing if Google Cloud requires it for your project.
-2. Obtain a Gemini API key through [Google AI Studio](https://aistudio.google.com/apikey). Store it in Google Secret Manager; do not add it to `.env`, source control, or the container image.
-3. Deploy from the repository root:
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey). `GEMINI_MODEL` is optional and defaults to `gemini-3.8-flash`; set it if you want a different Gemini model. Without a key the app shows a clear setup message instead of a fake result.
 
 ```bash
-gcloud run deploy flowforge \
-  --source . \
-  --region YOUR_REGION \
-  --allow-unauthenticated \
-  --set-secrets GEMINI_API_KEY=flowforge-gemini-key:latest
-```
-
-Replace `YOUR_REGION` with a Cloud Run region. Create the Secret Manager secret `flowforge-gemini-key` first, grant the Cloud Run runtime service account permission to access it, and follow the CLI prompts to enable required APIs. `--source .` builds with the included Dockerfile. The service listens on Cloud Run's `PORT` (8080 by default in Cloud Run); `/healthz` returns a readiness response. After deployment, use the service URL printed by `gcloud run deploy`.
-
-For authenticated or restricted services, omit `--allow-unauthenticated` and configure access separately. Public unauthenticated access is a deliberate example setting, not an account-security recommendation. Google AI Studio/Gemini API usage may be subject to quotas and pricing; review the provider terms before choosing a key and plan.
-
-## Checks
-
-```bash
-pnpm install --frozen-lockfile
 pnpm typecheck
+pnpm test
 pnpm build
 ```
 
-## Notes and official references
+## Deploy to Vercel
 
-- [Gemini API structured output](https://ai.google.dev/gemini-api/docs/structured-output) documents JSON response configuration. FlowForge still validates the received object locally.
-- [Cloud Run source deployment](https://docs.cloud.google.com/run/docs/deploying-source-code) documents deploying from source with `gcloud run deploy --source`.
-- [Cloud Run environment variables and secrets](https://docs.cloud.google.com/run/docs/configuring/services/environment-variables) documents Secret Manager-backed runtime configuration.
-- Sample values are illustrative, not verified facts. Replace them with real data before making decisions.
-- `pnpm-lock.yaml` is committed for reproducible dependency installation. No demo script is included.
+Import the repository in Vercel and keep the detected Vite settings (`vercel.json` already sets them). Under Project Settings, Environment Variables, add `GEMINI_API_KEY` for the environments you use. Do not prefix it with `VITE_`. Deploy, open the URL and try a prompt. `api/generate.ts` runs as a Node.js function with a 60 second limit, and `vercel.json` also applies the security headers.
+
+## Project layout
+
+```text
+api/generate.ts        Vercel function entry (POST /api/generate)
+server/generate.ts     prompt, Gemini call, validation, retry, rate limit
+server/http.ts         request parsing and response helpers, shared with dev
+src/lib/schema.ts      Zod schemas for requests, widgets and dashboards
+src/App.tsx            landing page, dashboard, refine bar, CSV input
+src/components/        lazy-loaded chart widget
+tests/                 schema and handler tests
+```
+
+## Data handling
+
+Prompts and CSV contents are sent to the Gemini API to produce a layout and are not stored by this app. Dashboard state and task ticks live in the browser session and disappear on reload. Check generated figures before relying on them: the schema guarantees the shape of a dashboard, not that an AI summary of your data is correct.
+
+## Known limits
+
+Rate limiting is in memory, so a determined client can get past it on a serverless deployment; put an edge rule in front for production use. Refinement sends the full previous spec back to the model, which is simple and reliable but not the cheapest option. Dashboards are not saved between sessions.
