@@ -6,68 +6,70 @@
 | |    | |___| |__| | \  /\  /  | |   | |__| | | \ \| |__| | |____
 |_|    |______\____/   \/  \/   |_|    \____/|_|  \_\\_____|______|
 
-  type a goal  ->  validated JSON spec  ->  a dashboard that builds itself
+  type a goal  ->  validated JSON spec  ->  3D interactive workspace
 ```
 
 # FlowForge
 
-FlowForge is a prompt-to-dashboard web app. You describe what you are working on in plain English, optionally attach a small CSV, and the AI returns a layout that the app renders as an interactive workspace of charts, tables, task lists and metrics. Follow-up prompts reshape the same dashboard in place.
+FlowForge is a prompt-to-workspace generative analytics web app. Describe what you are working on in plain English, optionally attach or drag-and-drop a CSV dataset, and FlowForge returns a schema-validated layout rendered as an interactive 3D workspace of glossy KPI cards, switchable charts (Area / Line / Bar), sortable & searchable tables, editable notes, interactive progress bars, and live checklists. Follow-up prompts reshape the same dashboard in place.
 
 Built for AI Vibeathon 2026 (Hack2Skill PromptWars).
 
 ## The problem
 
-Most workspace software is fixed. You buy a tool, learn its layout, and then spend the first hour bending it around the thing you actually need to track: a freelance studio this month, a study plan next month, a small side business after that. When the job changes, you rebuild the dashboard by hand or switch tools.
+Most workspace software is rigid. You adopt a tool, learn its fixed layout, and spend the first hour forcing it around the job you actually have: a SaaS financial pulse this week, an AI SEO traffic funnel next week, or a freelance client pipeline after that. When priorities shift, you rebuild the dashboard by hand or switch tools.
 
-AI assistants have the opposite problem. They can analyse and advise, but their output is a block of text. The answer lives in a chat box while the screen stays exactly as it was.
+AI chat assistants have the opposite problem. They can analyze a goal or summarize a CSV, but their output stays trapped in linear text. The insight lives in a chat bubble while the user still has no interactive workspace to sort, track, adjust, or export.
 
 ## Why this approach
 
-The obvious way to close that gap is to let the model write interface code. That is also the unsafe way: generated markup can break the page, inject scripts, or simply fail to render. FlowForge takes a narrower route. The model never writes UI. It returns data that has to match a strict schema describing eight allowed widget types, and the app draws those widgets with its own components. If the model returns something outside the schema, the response is rejected before anything reaches the screen.
+The naive way to bridge that gap is letting an LLM generate raw HTML, JSX, or JavaScript. That introduces XSS risk, broken layouts, and unpredictable rendering failures. FlowForge enforces a **schema-first generative UI boundary**:
 
-That choice gives three properties at once. The output is predictable, because every widget is a known component. It is safe, because there is no model-authored HTML or script to execute. And it is cheap to extend, because adding a widget means adding one schema entry and one component.
+1. **Models never write UI code.** Cloud models (Hugging Face Inference Router, Google Gemini, Groq, OpenAI) or the built-in CSV + NLP synthesis engine only output a JSON data specification matching a strict Zod schema (`src/lib/schema.ts`) covering eight allow-listed widget types.
+2. **Dual-end validation.** Every response is validated server-side before leaving `/api/generate` and re-validated client-side before React mounts a single component. Unknown widget types or extra properties are rejected.
+3. **Zero dead-end execution.** If no cloud API key is configured on Vercel, FlowForge automatically uses its deterministic CSV parser and domain-aware synthesis engine (`src/lib/localEngine.ts`) to compute real totals, averages, peaks, category groupings, and period changes from uploaded CSVs and synthesize or refine workspaces live.
 
 ## What it does
 
-You write a goal such as "a dashboard for my freelance design studio" and get a workspace of between three and eight widgets: KPI cards, line and bar charts, tables, task lists, progress bars, notes and calendar lists. You can refine it ("add a weekly hours chart, drop the calendar"), regenerate it, tick tasks off, or copy the underlying JSON spec. If you attach a CSV (up to 12 KB), the model is told to use its real columns and values and to avoid inventing totals. Without a CSV, every figure is labelled as illustrative sample data.
+- **Prompt-to-Workspace Generation:** Turn any goal into 3–8 interactive widgets (`kpi`, `line_chart`, `bar_chart`, `table`, `task_list`, `progress`, `note`, `calendar`).
+- **Real CSV Analytics:** Attach or drag-and-drop a CSV (up to 12 KB), or load the built-in SaaS sample CSV, to compute verified metrics, trend lines, category bars, and sortable tables.
+- **Multi-Provider AI Support:** Works with **Hugging Face Inference Router** (`Qwen/Qwen2.5-72B-Instruct`, `meta-llama/Llama-3.3-70B-Instruct`, `mistralai/Mistral-Small-24B-Instruct-2501`), **Google Gemini** (`gemini-2.5-flash`), **Groq**, **OpenAI**, session-only user tokens in the AI Engine modal, and automatic local fallback.
+- **Live Interactive Controls:** Switch chart modes (Area / Line / Bar), sort and filter table rows, add tasks inline, adjust progress bars with `+/-`, edit notes, check off calendar milestones, switch between session workspaces, toggle 3D tilt/compact density/focus mode, refine in place, and export specs to JSON or Markdown.
 
 ## How it works
 
 ```text
- browser                               Vercel function                       Gemini API
- -------                               ---------------                       ----------
- goal + optional CSV  --POST-->  validate request (Zod, size caps)
-                                 rate limit per client
-                                 build prompt, mark CSV as untrusted  --->  generateContent
-                                                                      <---  JSON text
-                                 parse + validate against schema
-                                 (one retry if invalid)
- render known widgets  <-------  200 spec  |  4xx/5xx with a plain message
+ browser                             Vercel functions                     AI / Local Engine
+ -------                             ----------------                     -----------------
+ goal + optional CSV  --POST----->   validate request (Zod, 64 KB cap)
+ (x-hf-token /                       rate limit per client (30/min)
+  x-gemini-key opt.)                 select HF / Gemini / Groq / OpenAI -> LLM JSON output
+                                     or local CSV + NLP synthesizer     -> validated spec
+                                     strict Zod parse + 1 cloud retry
+ render 3D widgets    <--200 JSON--  200 DashboardSpec (or structured JSON error)
 ```
-
-The same Zod schema in `src/lib/schema.ts` guards both ends. The server validates what the model returns, and the browser validates it again before rendering. The API key exists only in the server environment.
 
 ## How it maps to the evaluation criteria
 
 | Criterion | What the code does |
-| :-- | :-- |
-| Code quality | TypeScript in strict mode with unused-code checks, one schema shared by client and server, a framework-free request handler used by both Vercel and the dev server, 16 automated tests, and CI that runs typecheck, tests and build. |
-| Security | Strict schemas reject unknown fields and widget types. React renders everything as text, so there is no model-authored markup. CSV content is passed as untrusted data. The Gemini key stays server-side and never appears in URLs or responses. Request bodies are capped at 64 KB, upstream calls time out after 45 seconds, errors are generic, and the response headers include a Content Security Policy. A per-client rate limit applies, though on serverless it is per instance and best effort. |
-| Efficiency | No database and no external services beyond Gemini. Charts load in a separate lazy chunk, vendor code is split for caching, fonts load without blocking render, and a failed generation retries at most once. |
-| Accessibility | Skip link and a main landmark, visible keyboard focus, labelled form fields, task rows exposed as checkboxes, progress bars exposed as progressbars, text summaries on charts, `role="alert"` on errors, and reduced-motion support in both CSS and Framer Motion. Text smaller than 11px was raised to 11px, and low-contrast greys were lightened. This has not been through a formal WCAG audit. |
-| Problem statement | The sections above state the problem, the reason for a schema-bound design, and the limits. The app itself tells users when values are sample data and when a CSV has been sent to the AI service. |
+| :--- | :--- |
+| **Code quality** | TypeScript with `strict: true`, `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch`. One shared Zod schema (`src/lib/schema.ts`) guards both client and server. Framework-free HTTP handlers (`server/http.ts`) are shared by Vercel functions (`api/generate.ts`, `api/health.ts`) and Vite dev middleware (`vite.config.ts`). Automated test suite (`tests/schema.test.ts`, `tests/generate.test.ts`) + GitHub Actions CI (`.github/workflows/ci.yml`) running `typecheck`, `test`, and `build`. |
+| **Security** | Strict Zod schemas (`.strict()`) reject unknown widget types and extra fields so markup/scripts cannot ride along. React renders all values as text with zero `dangerouslySetInnerHTML`. CSV content is marked as untrusted data. Server API keys never enter client bundles (`VITE_` is never used), URLs, logs, or responses. Request bodies are capped at 64 KB, CSVs at 12 KB, model names are regex-validated, upstream calls time out after 40s, rate limiting caps abuse at 30 req/min per client, and `vercel.json` enforces CSP (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Permissions-Policy`. |
+| **Efficiency** | Zero database or runtime bloat. Charts (`recharts`) load asynchronously via `React.lazy` in a separate chunk; vendor code (`react`, `framer-motion`) is manually split for caching. The 3D `<canvas>` stage (`AmbientStage.tsx`) caps DPR at 2 and automatically pauses on `document.hidden` and `prefers-reduced-motion`. Cloud retries are capped at 1, and local CSV/domain fallback runs in single-digit milliseconds. |
+| **Accessibility** | Skip link (`#content`), semantic `<main>` / `<aside>` / `<header>` landmarks, visible `2px` focus outlines, labelled inputs and dialogs (`role="dialog"`, `aria-modal="true"`, Escape handling, focus restoration), `role="checkbox"` on tasks, `role="progressbar"` with value attributes, `aria-sort` on sortable table headers, `aria-live="polite"` on the widget grid, `role="alert"` on errors, accessible text summaries on charts, and `prefers-reduced-motion` support across CSS, Canvas, and Framer Motion (`<MotionConfig reducedMotion="user">`). |
+| **Problem statement** | Addresses both static-tool rigidity and text-trapped AI output via a schema-bound generative UI. Clearly distinguishes verified CSV calculations from illustrative sample figures, discloses session-only data handling, and documents known architectural limits below. |
 
 ## Run locally
 
-You need Node.js 20 or newer and pnpm.
+You need Node.js 20 or newer and `pnpm`.
 
 ```bash
 pnpm install
-cp .env.example .env     # then put your Gemini API key in GEMINI_API_KEY
+cp .env.example .env     # optional: add HF_TOKEN or GEMINI_API_KEY
 pnpm dev                 # http://localhost:5173
 ```
 
-Get a key from [Google AI Studio](https://aistudio.google.com/apikey). `GEMINI_MODEL` is optional and defaults to `gemini-3.8-flash`; set it if you want a different Gemini model. Without a key the app shows a clear setup message instead of a fake result.
+Run checks:
 
 ```bash
 pnpm typecheck
@@ -77,24 +79,16 @@ pnpm build
 
 ## Deploy to Vercel
 
-Import the repository in Vercel and keep the detected Vite settings (`vercel.json` already sets them). Under Project Settings, Environment Variables, add `GEMINI_API_KEY` for the environments you use. Do not prefix it with `VITE_`. Deploy, open the URL and try a prompt. `api/generate.ts` runs as a Node.js function with a 60 second limit, and `vercel.json` also applies the security headers.
-
-## Project layout
-
-```text
-api/generate.ts        Vercel function entry (POST /api/generate)
-server/generate.ts     prompt, Gemini call, validation, retry, rate limit
-server/http.ts         request parsing and response helpers, shared with dev
-src/lib/schema.ts      Zod schemas for requests, widgets and dashboards
-src/App.tsx            landing page, dashboard, refine bar, CSV input
-src/components/        lazy-loaded chart widget
-tests/                 schema and handler tests
-```
+1. Push the contents of `FlowForge-GitHub.zip` to GitHub and import the repository in Vercel (or deploy `FlowForge-Vercel.zip` directly). `vercel.json` preconfigures Vite and Node.js Serverless Functions (`api/*.ts` with `maxDuration: 60`).
+2. Optionally add `HF_TOKEN` (Hugging Face) and/or `GEMINI_API_KEY` (Google AI Studio) in **Project Settings → Environment Variables**. Never prefix keys with `VITE_`.
+3. Even without environment variables configured, the site works immediately using the built-in CSV & NLP engine, and visitors can optionally supply a session-only token in the **AI Engine** modal.
 
 ## Data handling
 
-Prompts and CSV contents are sent to the Gemini API to produce a layout and are not stored by this app. Dashboard state and task ticks live in the browser session and disappear on reload. Check generated figures before relying on them: the schema guarantees the shape of a dashboard, not that an AI summary of your data is correct.
+Prompts and CSV contents are processed to build or refine the active dashboard and are never stored in a FlowForge database. Workspace history and interactive widget edits live only in browser session memory and reset on reload.
 
 ## Known limits
 
-Rate limiting is in memory, so a determined client can get past it on a serverless deployment; put an edge rule in front for production use. Refinement sends the full previous spec back to the model, which is simple and reliable but not the cheapest option. Dashboards are not saved between sessions.
+- Rate limiting (`isRateLimited`) is stored in-memory per serverless instance, so high-traffic production deployments should add an edge WAF/KV rate limiter in front.
+- Refinements pass the current dashboard spec to the model for accurate in-place preservation, which trades extra input tokens for layout stability.
+- Workspace history is session-only and does not persist across page refreshes without exporting JSON or Markdown.

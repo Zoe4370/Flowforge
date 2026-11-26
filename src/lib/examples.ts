@@ -1,20 +1,36 @@
-import type { DashboardSpec } from './schema';
-
 export const examples = [
-  { label: 'Freelance studio', prompt: 'Build a dashboard for my freelance design studio: income, active projects, and next steps.' },
-  { label: 'Study routine', prompt: 'Make a weekly study planner for a high-school student balancing maths, science, and rest.' },
-  { label: 'Healthy habits', prompt: 'Create a beginner wellness dashboard to track movement, sleep, water, and small weekly goals.' },
+  {
+    label: 'SaaS Financial & KPIs',
+    prompt: 'Build a SaaS financial command dashboard with MRR, net retention, LTV:CAC, burn breakdown, and Q4 ARR target.',
+  },
+  {
+    label: 'Traffic & AI SEO',
+    prompt: 'Create a Similarweb-style traffic and AI SEO analytics dashboard tracking organic visits, conversion rate, channels, and top pages.',
+  },
+  {
+    label: 'Product Launch',
+    prompt: 'Design a marketing campaign launch workspace with funnel conversion, channel ROI, launch checklist, and milestones.',
+  },
+  {
+    label: 'Freelance Studio',
+    prompt: 'Build a dashboard for my freelance design studio: monthly income, active client retainers, pipeline, and next steps.',
+  },
+  {
+    label: 'Study Routine',
+    prompt: 'Make a weekly study planner for a student balancing maths, science, mock exam scores, and rest.',
+  },
+  {
+    label: 'Healthy Habits',
+    prompt: 'Create a wellness dashboard to track daily movement, sleep quality, hydration streak, and weekly cardio goals.',
+  },
 ];
 
-export const sampleDashboard: DashboardSpec = {
-  title: 'Studio pulse',
-  subtitle: 'A sample workspace for a small independent design studio',
-  widgets: [
-    { type: 'kpi', title: 'Monthly income', value: '$4,820', delta: '+12% this month', trend: 'up', icon: 'wallet' },
-    { type: 'kpi', title: 'Active projects', value: '06', delta: '2 due this week', trend: 'flat', icon: 'layers' },
-    { type: 'kpi', title: 'Focus time', value: '28.5 h', delta: '+3.5 h this week', trend: 'up', icon: 'clock' },
-    { type: 'line_chart', title: 'Income over the last 6 months', color: 'lime', data: [{ label: 'Jun', value: 2700 }, { label: 'Jul', value: 3200 }, { label: 'Aug', value: 2950 }, { label: 'Sep', value: 3800 }, { label: 'Oct', value: 3950 }, { label: 'Nov', value: 4820 }] },
-    { type: 'task_list', title: 'Next steps', items: [{ label: 'Send the Northline concept boards', done: true }, { label: 'Review two new project enquiries', done: false }, { label: 'Share the November invoice', done: false }, { label: 'Block a Friday studio session', done: false }] },
-    { type: 'table', title: 'Project pipeline', columns: [{ key: 'project', label: 'PROJECT' }, { key: 'stage', label: 'STAGE' }, { key: 'value', label: 'VALUE' }], rows: [{ project: 'Northline identity', stage: 'Review', value: '$1,800' }, { project: 'Fieldnotes site', stage: 'In progress', value: '$2,400' }, { project: 'June coffee', stage: 'Discovery', value: '$900' }] },
-  ],
-};
+export const sampleCsvName = 'saas-growth-metrics.csv';
+
+export const sampleCsvData = `Month,Channel,Revenue,Visitors,Signups,Conversion
+Jun,Organic SEO,$49200,78400,1420,1.81%
+Jul,AI Search,$55800,89200,1680,1.88%
+Aug,Organic SEO,$62400,101500,2040,2.01%
+Sep,Product Hunt,$70900,118900,2590,2.18%
+Oct,Referral,$76500,132400,2980,2.25%
+Nov,AI Search,$84200,148400,3490,2.35%`;

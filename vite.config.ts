@@ -1,13 +1,14 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { handleGenerate } from './server/http';
+import { handleGenerate, handleHealth } from './server/http.js';
 
-// Serves /api/generate during `pnpm dev` with the same handler Vercel runs in production.
+// Serves /api/generate and /api/health during `pnpm dev` with the same handlers Vercel runs in production.
 function devApi(env: Record<string, string>): Plugin {
   return {
     name: 'flowforge-dev-api',
     configureServer(server) {
       server.middlewares.use('/api/generate', (req, res) => void handleGenerate(req, res, env));
+      server.middlewares.use('/api/health', (req, res) => void handleHealth(req, res, env));
     },
   };
 }

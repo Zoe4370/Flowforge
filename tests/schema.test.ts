@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dashboardSpecSchema, generateRequestSchema } from '../src/lib/schema';
+import { dashboardSpecSchema, generateRequestSchema } from '../src/lib/schema.js';
+import { synthesizeDashboard } from '../src/lib/localEngine.js';
 
 const kpi = (title: string) => ({ type: 'kpi', title, value: '10' });
 const valid = { title: 'Studio pulse', widgets: [kpi('A'), kpi('B'), kpi('C')] };
@@ -33,5 +34,14 @@ describe('generateRequestSchema', () => {
   });
   it('caps CSV size at 12,000 characters', () => {
     expect(generateRequestSchema.safeParse({ goal: 'plan my week', sourceData: 'a'.repeat(12_001) }).success).toBe(false);
+  });
+});
+
+describe('synthesizeDashboard', () => {
+  it('refines an existing dashboard in place', () => {
+    const initial = synthesizeDashboard('Build a SaaS financial KPI dashboard');
+    const refined = synthesizeDashboard('Simplify to 4 widgets and switch chart to cyan', initial);
+    expect(refined.widgets.length).toBeLessThanOrEqual(4);
+    expect(dashboardSpecSchema.safeParse(refined).success).toBe(true);
   });
 });

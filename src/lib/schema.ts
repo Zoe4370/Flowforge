@@ -20,11 +20,17 @@ export const dashboardSpecSchema = z.object({
   widgets: z.array(widgetSchema).min(3).max(8),
 }).strict();
 
+export const providerSchema = z.enum(['auto', 'huggingface', 'gemini', 'groq', 'openai', 'local']);
+
 export const generateRequestSchema = z.object({
   goal: z.string().trim().min(4).max(500),
   current: dashboardSpecSchema.optional(),
   sourceData: z.string().max(12_000).optional(),
+  provider: providerSchema.optional(),
+  model: z.string().trim().min(2).max(120).regex(/^[a-zA-Z0-9._:/-]+$/).optional(),
+  requireCloud: z.boolean().optional(),
 }).strict();
 
 export type Widget = z.infer<typeof widgetSchema>;
 export type DashboardSpec = z.infer<typeof dashboardSpecSchema>;
+export type ProviderChoice = z.infer<typeof providerSchema>;
