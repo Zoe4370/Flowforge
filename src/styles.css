@@ -1566,7 +1566,7 @@ button:disabled {
   display: grid;
   place-items: center;
   width: 24px;
-  height: 22px;
+  height: 24px;
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -2485,4 +2485,13 @@ tbody tr:hover td {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .surface,
+  .surface:hover,
+  .preview-stage,
+  .preview-stage:hover,
+  .example-chip:hover,
+  .primary-button:not(:disabled):hover {
+    transform: none !important;
+  }
+
 }

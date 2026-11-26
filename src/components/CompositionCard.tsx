@@ -16,6 +16,8 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
           <button
             type="button"
             role="tab"
+            id="preview-tab-pipeline"
+            aria-controls="preview-panel-pipeline"
             aria-selected={tab === 'pipeline'}
             className={tab === 'pipeline' ? 'is-active' : ''}
             onClick={() => setTab('pipeline')}
@@ -25,6 +27,8 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
           <button
             type="button"
             role="tab"
+            id="preview-tab-schema"
+            aria-controls="preview-panel-schema"
             aria-selected={tab === 'schema'}
             className={tab === 'schema' ? 'is-active' : ''}
             onClick={() => setTab('schema')}
@@ -34,6 +38,8 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
           <button
             type="button"
             role="tab"
+            id="preview-tab-preview"
+            aria-controls="preview-panel-preview"
             aria-selected={tab === 'preview'}
             className={tab === 'preview' ? 'is-active' : ''}
             onClick={() => setTab('preview')}
@@ -60,7 +66,7 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
       </div>
 
       {tab === 'pipeline' && (
-        <>
+        <div id="preview-panel-pipeline" role="tabpanel" aria-labelledby="preview-tab-pipeline" tabIndex={0}>
           <button
             type="button"
             className={`flow-step ${activeStep === 0 ? 'flow-step-final' : ''}`}
@@ -103,11 +109,11 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
             </div>
             <span className="flow-status">LIVE UI</span>
           </button>
-        </>
+        </div>
       )}
 
       {tab === 'schema' && (
-        <pre className="preview-code" aria-label="Dashboard JSON schema preview">{`{
+        <pre id="preview-panel-schema" role="tabpanel" aria-labelledby="preview-tab-schema" tabIndex={0} className="preview-code" aria-label="Dashboard JSON schema preview">{`{
   "title": "SaaS Growth Pulse",
   "widgets": [
     { "type": "kpi", "value": "$84.2k", "delta": "+19%" },
@@ -119,7 +125,7 @@ export function CompositionCard({ onTryDemo }: { onTryDemo: () => void }) {
       )}
 
       {tab === 'preview' && (
-        <div className="preview-mini-dash">
+        <div id="preview-panel-preview" role="tabpanel" aria-labelledby="preview-tab-preview" tabIndex={0} className="preview-mini-dash">
           <div className="mini-kpis">
             <div>
               <span>MRR</span>

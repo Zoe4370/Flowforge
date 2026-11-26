@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
-import { motion, useMotionValue, useSpring } from 'framer-motion';
+import { motion, useMotionValue, useReducedMotion, useSpring } from 'framer-motion';
 import {
   Activity,
   ArrowDownRight,
@@ -43,6 +43,8 @@ type SurfaceProps = {
 };
 
 function Surface({ children, className = '', delay = 0, tiltEnabled = true }: SurfaceProps) {
+  const prefersReducedMotion = useReducedMotion();
+  const motionEnabled = tiltEnabled && !prefersReducedMotion;
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotateX = useSpring(x, { stiffness: 190, damping: 22 });
@@ -54,7 +56,7 @@ function Surface({ children, className = '', delay = 0, tiltEnabled = true }: Su
     const py = (e.clientY - box.top) / Math.max(1, box.height);
     e.currentTarget.style.setProperty('--mx', `${(px * 100).toFixed(1)}%`);
     e.currentTarget.style.setProperty('--my', `${(py * 100).toFixed(1)}%`);
-    if (!tiltEnabled) return;
+    if (!motionEnabled) return;
     x.set((py - 0.5) * -4.2);
     y.set((px - 0.5) * 4.2);
   }
@@ -68,7 +70,7 @@ function Surface({ children, className = '', delay = 0, tiltEnabled = true }: Su
     <motion.article
       layout
       className={`surface ${className}`}
-      style={tiltEnabled ? { rotateX, rotateY, transformPerspective: 1100 } : undefined}
+      style={motionEnabled ? { rotateX, rotateY, transformPerspective: 1100 } : undefined}
       onMouseMove={point}
       onMouseLeave={clear}
       initial={{ opacity: 0, y: 14, scale: 0.985 }}
@@ -219,8 +221,8 @@ export function WidgetCard({
       )}
 
       {(widget.type === 'line_chart' || widget.type === 'bar_chart') && (
-        <Suspense fallback={<div className="chart-skeleton" aria-label="Loading chart" />}>
-          <ChartWidget widget={widget} index={index} />
+        <Suspense fallback={<div className="chart-skeleton" role="status" aria-label="Loading chart" />}>
+          <ChartWidget widget={widget} />
         </Suspense>
       )}
 
@@ -235,8 +237,7 @@ export function WidgetCard({
                   className={`task-row ${done ? 'is-done' : ''}`}
                   key={key}
                   type="button"
-                  role="checkbox"
-                  aria-checked={done}
+                  aria-pressed={done}
                   onClick={() => onToggleTask(key, !done)}
                 >
                   <span className="task-check">{done ? <Check size={13} /> : <Circle size={15} />}</span>
