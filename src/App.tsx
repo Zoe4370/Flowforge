@@ -358,6 +358,9 @@ export default function App() {
       </a>
       <AmbientStage enabled={tiltEnabled} />
       <div className={`app-shell ${dashboard ? 'has-dashboard' : 'is-landing'} ${focusMode ? 'is-focus' : ''} ${compactMode ? 'is-compact' : ''}`}>
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {loading ? loadingStage : error ? error : dashboard ? 'Workspace ready.' : ''}
+        </div>
         {dashboard && !focusMode && (
           <aside className="sidebar" aria-label="Workspace navigation">
             <button className="brand" type="button" onClick={newWorkspace} aria-label="FlowForge home">
@@ -680,7 +683,7 @@ export default function App() {
                 </div>
               )}
 
-              <div className={`widget-grid ${loading ? 'is-refreshing' : ''}`} aria-live="polite">
+              <div className={`widget-grid ${loading ? 'is-refreshing' : ''}`}>
                 {dashboard.widgets.map((widget, index) => (
                   <WidgetCard
                     key={`${widget.type}-${index}-${widget.title}`}

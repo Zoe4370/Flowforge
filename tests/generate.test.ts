@@ -148,6 +148,15 @@ describe('HTTP handlers', () => {
     expect(json().error).toContain('JSON');
   });
 
+  it('rejects non-JSON content types and emits defensive response headers', async () => {
+    const { res, headers, json } = mockRes();
+    await handleGenerate(mockReq('POST', '{}', { 'content-type': 'text/plain' }), res, {});
+    expect(res.statusCode).toBe(415);
+    expect(json().error).toContain('application/json');
+    expect(headers['x-frame-options']).toBe('DENY');
+    expect(headers['cross-origin-opener-policy']).toBe('same-origin');
+  });
+
   it('returns provider metadata headers and valid spec on handleGenerate', async () => {
     const { res, headers, json } = mockRes();
     await handleGenerate(mockReq('POST', JSON.stringify({ goal: 'SaaS financial KPIs' })), res, {});

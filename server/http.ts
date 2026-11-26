@@ -4,7 +4,9 @@ import { generateDashboard, getProviderHealth, type Env, type UserKeys } from '.
 const MAX_BODY_BYTES = 64 * 1024;
 
 function clientId(req: IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for'];
+  // Vercel supplies x-vercel-forwarded-for at the edge. Fall back to the
+  // conventional header for local adapters, then to the socket address.
+  const forwarded = req.headers['x-vercel-forwarded-for'] ?? req.headers['x-forwarded-for'];
   const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
   return first || req.socket?.remoteAddress || 'unknown';
 }
@@ -44,6 +46,11 @@ function send(
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   if (extraHeaders) {
     for (const [k, v] of Object.entries(extraHeaders)) {
       if (v) res.setHeader(k, v);
@@ -58,6 +65,10 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');
       return send(res, 405, { error: 'Use POST.' });
+    }
+    const contentType = headerStr(req, 'content-type');
+    if (contentType && !/^application\/json(?:\s*;|$)/i.test(contentType)) {
+      return send(res, 415, { error: 'Content-Type must be application/json.' });
     }
     let body: unknown;
     try {
